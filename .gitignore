@@ -16,6 +16,9 @@ firebase-debug.*.log
 *service-account*.json
 *-firebase-adminsdk-*.json
 
+# Config local con valores reales (cada dev tiene la suya)
+lib/firebase-config.ts
+
 # varios
 .env*.local
 .DS_Store

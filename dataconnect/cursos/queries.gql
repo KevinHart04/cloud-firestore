@@ -1,0 +1,54 @@
+# ─────────────────────────────────────────────────────────────────────────────
+#  Queries del conector `cursos`.
+#  Cada operación DEBE declarar quién puede ejecutarla con @auth:
+#    PUBLIC     → cualquiera, incluso sin login (exige justificar con insecureReason)
+#    USER       → cualquier usuario autenticado con Firebase Auth
+#    NO_ACCESS  → nadie desde el cliente (solo herramientas de admin)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Catálogo: lo puede ver cualquiera.
+query ListCursos @auth(level: PUBLIC, insecureReason: "El catálogo de cursos es información pública.") {
+  cursos(orderBy: { titulo: ASC }) {
+    id
+    titulo
+    nivel
+    horas
+    descripcion
+    cupo
+  }
+}
+
+# ⚠️ Operación heredada de un desarrollador anterior. Se usaba en un panel de admin.
+# L4: Auditada y corregida.
+# - Devuelve datos personales (email) de todos los alumnos → NO_ACCESS.
+# - Un panel de admin real usaría Firebase Admin SDK (backend) o Custom Claims + function,
+#   no una operación expuesta al cliente.
+query ListAlumnos @auth(level: NO_ACCESS) {
+  alumnos {
+    id
+    nombre
+    email
+  }
+}
+
+# ─────────────────────────────────────────────────────────────────────────────
+#  L3: Query `MisInscripciones`
+#   - Solo para usuarios autenticados (USER).
+#   - Devuelve los cursos en los que está inscripto EL USUARIO QUE LLAMA.
+#   - No recibe el id del alumno como variable (previene IDOR).
+#   - Forma esperada: { alumno: { nombre, matriculas: [ { fecha, curso: { id, titulo, nivel, horas } } ] } }
+# ─────────────────────────────────────────────────────────────────────────────
+query MisInscripciones @auth(level: USER) {
+  alumno(key: { id_expr: "auth.uid" }) {
+    nombre
+    matriculas: matriculas_on_alumno {
+      fecha
+      curso {
+        id
+        titulo
+        nivel
+        horas
+      }
+    }
+  }
+}
