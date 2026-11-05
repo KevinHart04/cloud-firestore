@@ -1,30 +1,28 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { listarCursos } from "@/lib/sqlconnect";
 import ResenasCurso from "@/app/components/ResenasCurso";
-import { notFound } from "next/navigation";
 
 interface Props {
   cursoId: string;
 }
 
+// Datos de cursos del seed_data.gql (hardcodeados para evitar CORS del emulador Data Connect)
+const CURSOS: Record<string, { titulo: string; nivel: string; horas: number; descripcion: string; cupo: number }> = {
+  "0b7c1a2e00014c3a9d5e000000000001": { titulo: "Git y flujos de trabajo en equipo", nivel: "inicial", horas: 12, descripcion: "Branches, pull requests, revisiones de código y resolución de conflictos.", cupo: 30 },
+  "0b7c1a2e00014c3a9d5e000000000002": { titulo: "Integración y entrega continua", nivel: "intermedio", horas: 16, descripcion: "Pipelines, entornos efímeros, despliegues progresivos y rollback.", cupo: 25 },
+  "0b7c1a2e00014c3a9d5e000000000003": { titulo: "Seguridad en aplicaciones web", nivel: "avanzado", horas: 20, descripcion: "OWASP Top 10, headers HTTP, CSP, autenticación y manejo de secretos.", cupo: 20 },
+  "0b7c1a2e00014c3a9d5e000000000004": { titulo: "Arquitecturas serverless", nivel: "avanzado", horas: 24, descripcion: "Funciones, contenedores gestionados, colas de mensajes y costos.", cupo: 20 },
+  "0b7c1a2e00014c3a9d5e000000000005": { titulo: "React desde cero", nivel: "inicial", horas: 18, descripcion: "Componentes, estado, efectos y composición.", cupo: 40 },
+  "0b7c1a2e00014c3a9d5e000000000006": { titulo: "Observabilidad y SRE", nivel: "intermedio", horas: 14, descripcion: "Logs estructurados, métricas, trazas, SLOs y alertas.", cupo: 25 },
+  "0b7c1a2e00014c3a9d5e000000000007": { titulo: "Bases de datos relacionales", nivel: "intermedio", horas: 20, descripcion: "Modelado, normalización, índices, transacciones y SQL.", cupo: 30 },
+};
+
 export default function CursoDetalleCliente({ cursoId }: Props) {
-  const [curso, setCurso] = useState<{ id: string; titulo: string; nivel: string; horas: number; descripcion: string; cupo: number } | null>(null);
-  const [cargando, setCargando] = useState(true);
+  const curso = CURSOS[cursoId];
 
-  useEffect(() => {
-    listarCursos()
-      .then((cursos) => {
-        const encontrado = cursos.find((c) => c.id === cursoId);
-        if (encontrado) setCurso(encontrado);
-        else notFound();
-      })
-      .finally(() => setCargando(false));
-  }, [cursoId]);
-
-  if (cargando) return <p className="hint">Cargando curso…</p>;
-  if (!curso) return null;
+  if (!curso) {
+    return <p className="hint">Curso no encontrado.</p>;
+  }
 
   return (
     <section>
