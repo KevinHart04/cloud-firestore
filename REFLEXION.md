@@ -165,3 +165,118 @@ El preview tiene vencimiento (configurado en `expires: 3d`) para limitar el tiem
 ---
 
 *Práctica completada según rúbrica: Pipeline preview (20/20), Pipeline producción (15/15), Trazabilidad y rollback (15/15), Headers seguridad (20/20), CSP (15/15), Caché (10/10), Reflexión (5/5) = **100/100**.*
+
+---
+
+# Reflexión - Clase 2: SQL Connect (Modelado relacional y autorización)
+
+## Preguntas de reflexión (enunciado Clase 2)
+
+### 1. ¿Por qué ninguna operación de este conector recibe el id del alumno como variable? ¿Qué es IDOR y cómo lo evita auth.uid?
+
+**Por qué no recibe el ID**: Porque el ID del alumno **es el UID de Firebase Auth** (`auth.uid`). El cliente ya está autenticado y el token JWT contiene su identidad. Permitir pasar `alumnoId` como variable crearía una vulnerabilidad **IDOR (Insecure Direct Object Reference)**: un usuario malintencionado podría cambiar el ID en la request y acceder/modificar datos de otro alumno.
+
+**Qué es IDOR**: Fallo de autorización donde una API expone referencias directas a objetos (IDs en URL, body, params) sin verificar que el usuario autenticado tenga permiso sobre ese objeto. Ej: `GET /api/alumnos/123/inscripciones` → cambiar a `124` ve inscripciones de otro.
+
+**Cómo lo evita `auth.uid`**: En SQL Connect, las operaciones usan `id_expr: "auth.uid"` (en mutations) o `key: { id_expr: "auth.uid" }` (en queries). El **servidor** extrae el UID del token JWT verificado y lo usa como valor. El cliente **nunca** lo envía; no hay variable `$alumnoId` que un atacante pueda manipular. La autorización está en la definición de la operación (`@auth(level: USER)`), no en código disperso.
+
+---
+
+### 2. ListCursos es PUBLIC y ListAlumnos terminó en NO_ACCESS. ¿Qué criterio usaste? ¿Cómo haría el "panel de admin" para listar alumnos?
+
+**Criterio**: **Sensibilidad del dato** y **principio de menor privilegio**.
+- `ListCursos`: Catálogo público, información que cualquiera debe ver para decidirse a inscribirse. Sin datos personales → `PUBLIC` con `insecureReason` justificado.
+- `ListAlumnos`: Devuelve **datos personales** (nombre, **email**, UID) de **todos** los alumnos. Exponer esto a cualquier usuario autenticado (`USER`) o público (`PUBLIC`) viola privacidad y RGPD/LOPD → `NO_ACCESS`.
+
+**Panel de admin real**: No se hace con una operación expuesta al cliente. Opciones correctas:
+1. **Firebase Admin SDK** en backend (Cloud Functions / servidor propio): `admin.firestore().collection('alumnos').get()` con service account.
+2. **Custom Claims** en Firebase Auth (`admin: true`) + **Cloud Function** callable que verifique el claim y devuelva la lista.
+3. **Data Connect** con `@auth(level: NO_ACCESS)` + **Data Connect Admin SDK** (Node.js) desde un backend de confianza.
+4. **Firebase Extensions** o **Firestore** con reglas de seguridad que solo permitan leer a usuarios con claim `admin`.
+
+La clave: **el cliente (navegador) nunca debe tener una operación que liste todos los usuarios**.
+
+---
+
+### 3. ¿Qué ventaja tiene una clave primaria compuesta en Matricula frente a validar duplicados en el código del cliente?
+
+| Validación en cliente | Clave primaria compuesta (BD) |
+|----------------------|-------------------------------|
+| Se puede saltar (devtools, curl, script) | **Imposible de saltar**: la BD rechaza el INSERT/UPDATE |
+| Condición de carrera (race condition): dos requests simultáneos pasan la validación y duplican | **Atomicidad garantizada**: la BD serializa y solo uno entra |
+| Requiere confianza en el frontend | **Defensa en profundidad**: la regla vive en la capa de datos |
+| Olvido en una mutación nueva = bug | **Una sola regla** cubre todas las formas de escribir (mutations, seed, admin SDK, SQL directo) |
+
+**Ventaja clave**: La integridad referencial y de unicidad **no depende de quién escribe**, sino de **qué se escribe**. Es la única forma correcta de modelar "un alumno no se inscribe dos veces al mismo curso".
+
+---
+
+### 4. La configuración de Firebase (apiKey, etc.) es pública. ¿Por qué eso no compromete la base de datos? ¿Qué capa faltaría para frenar a alguien que usa esa config desde un script? (pista: App Check).
+
+**Por qué no compromete la BD**:
+- La `apiKey` web **solo identifica el proyecto** en Google APIs. No es un secreto; está en el bundle JS y cualquiera la ve.
+- El acceso a datos **requiere autenticación** (Firebase Auth → token JWT con `auth.uid`).
+- SQL Connect **verifica el token** en cada request y evalúa `@auth(level: USER/NO_ACCESS)` antes de ejecutar SQL.
+- Sin login válido → `401 Unauthenticated`. Con login ajeno → `403 Permission denied` (no coincide `auth.uid`).
+
+**Capa faltante: App Check**.
+- **Problema**: Un atacante con la config pública puede escribir un script que: 1) cree usuarios falsos (abuso de `createUserWithEmailAndPassword`), 2) haga login masivo, 3) llame a `Inscribirme` saturando la base (DoS) o spammeando inscripciones.
+- **App Check** resuelve esto: emite un **token de atestación** (Play Integrity / DeviceCheck / reCAPTCHA Enterprise) que demuestra que la request viene de **tu app real** (no de un script/bot/curl).
+- En Firebase Console → **App Check** → registrar la app web (reCAPTCHA v3) → en `firebase.json` o código: `initializeAppCheck(app, { provider: new ReCaptchaV3Provider('...') })`.
+- SQL Connect / Firestore / Functions pueden exigir `X-Firebase-AppCheck` header válido.
+
+---
+
+### 5. Comparado con una API REST propia (Express + pg), ¿qué te da SQL Connect y qué perdés?
+
+| **SQL Connect te da** | **SQL Connect te quita / limita** |
+|----------------------|-----------------------------------|
+| **Cero servidor**: no hay Express, no hay contenedor, no hay Cloud Run que gestionar | **Control del SQL**: no podés escribir `JOIN` complejos, `CTE`, ventanas, `LATERAL`, `FOR UPDATE`, stored procedures |
+| **Autorización declarativa** (`@auth`) junto a la operación, no middleware disperso | **Flexibilidad de respuesta**: la forma la define GraphQL, no vos (aunque podés usar aliases) |
+| **Inyección SQL imposible** por diseño (solo operaciones predefinidas) | **Testing local limitado**: emulador (PGlite) ≠ PostgreSQL real (tipos, extensiones, performance) |
+| **Esquema versionado** en `.gql` + migraciones automáticas en deploy | **Vendor lock-in**: atado a Firebase/Google Cloud; no hay `pg_dump` directo fácil |
+| **Escalado automático** (plan Spark: db-f1-micro, 8k ops/día) | **Costos ocultos en Blaze**: Cloud SQL + Data Connect API calls se facturan por separado |
+| **Integración nativa** con Firebase Auth (`auth.uid`, `auth.token.email`) | **Menos ecosistema**: no podés usar middlewares de Express (rate limit, logging, cors custom) |
+| **Deploy atómico** esquema + datos (`seed_data.gql`) | **Debugging**: logs menos granulares que `console.log` en tu servidor |
+
+**Resumen**: SQL Connect gana en **velocidad de desarrollo, seguridad por defecto y ops cero** para CRUD estándar con auth. Pierde en **control, flexibilidad SQL y portabilidad**. Ideal para apps móviles/web con Firebase Auth; no para reportes complejos, ETL, o migraciones de legacy.
+
+---
+
+### 6. ¿Por qué no alcanzó con la CSP de la clase 1 y por qué conviene listar dominios exactos en connect-src?
+
+**Por qué no alcanzó**: La CSP de Clase 1 tenía `connect-src 'self'`. En producción, la app debe hablar con:
+- `identitytoolkit.googleapis.com` (Firebase Auth: login, signup, refresh token)
+- `firestore.googleapis.com` / `firebasedatabase.app` (si usara Firestore/RTDB)
+- `*.firebasedatabase.app` (Realtime Database)
+- `*.googleapis.com` / `*.cloudfunctions.net` (Data Connect / Cloud Functions)
+- `*.firebaseio.com` (legacy RTDB)
+
+Sin esos orígenes en `connect-src`, el navegador bloquea las requests → **la app no loguea, no carga catálogo, no inscribe**. Consola muestra `Refused to connect to ... because it violates CSP`.
+
+**Por qué dominios exactos (no wildcards amplios)**:
+| Política | Ejemplo | Riesgo |
+|----------|---------|--------|
+| `connect-src https://*.googleapis.com` | Permite **cualquier** API de Google (Translate, Maps, Vision, Cloud KMS, etc.) | Si hay XSS, el atacante puede exfiltrar datos a **cualquier** endpoint de Google APIs. Superficie de ataque enorme. |
+| `connect-src https://identitytoolkit.googleapis.com https://firestore.googleapis.com` | Solo los endpoints que **tu app usa** | **Principio de menor privilegio**: si hay XSS, el atacante solo puede llamar a Auth/Firestore. No puede abusar de APIs irrelevantes. |
+
+**Buena práctica**: Auditar la pestaña **Network** en producción (build + serve + emulador hosting) → listar **solo** los orígenes que la app realmente contacta. Documentar por qué cada uno.
+
+---
+
+## Estado final Clase 2
+
+| TODO | Estado | Archivo |
+|------|--------|---------|
+| L1 Tabla Matricula | ✅ | `dataconnect/schema/schema.gql` |
+| L2 Inscribirme | ✅ | `dataconnect/cursos/mutations.gql` |
+| L3 MisInscripciones | ✅ | `dataconnect/cursos/queries.gql` |
+| L4 ListAlumnos → NO_ACCESS | ✅ | `dataconnect/cursos/queries.gql` |
+| L5 DarmeDeBaja (opcional) | ✅ | `dataconnect/cursos/mutations.gql` |
+| L6 CSP connect-src | ✅ | `firebase.json` |
+| L7 Deploy SQL Connect + seed | ✅ | `npx firebase deploy --only dataconnect` + `dataconnect:execute` |
+| Auditoría (`npm run atacar`) | ✅ | 6/6 checks passed |
+
+---
+
+*Reflexión Clase 2 completada.*
