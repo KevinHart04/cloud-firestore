@@ -35,6 +35,9 @@ jobs:
       - name: Instalar dependencias
         run: npm ci
 
+      - name: Preparar config Firebase (CI)
+        run: cp lib/firebase-config.ts.template lib/firebase-config.ts
+
       - name: Typecheck
         run: npm run typecheck
 
