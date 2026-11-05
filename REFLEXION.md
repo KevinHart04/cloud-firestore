@@ -280,3 +280,147 @@ Sin esos orígenes en `connect-src`, el navegador bloquea las requests → **la 
 ---
 
 *Reflexión Clase 2 completada.*
+
+---
+
+# Reflexión - Práctica 4 · Cloud Firestore
+
+## Preguntas de reflexión (enunciado Práctica 4)
+
+### 1. ¿Por qué el id del documento es el UID? ¿Qué tendrías que agregar (en reglas o en código) si usaras ids aleatorios con addDoc?
+
+**Por qué el id es el UID**: Garantiza **"una reseña por persona y curso"** a nivel estructural. Al usar `doc(resenas, usuario.uid)`, crear y editar apuntan al mismo documento; no hace falta lógica extra para evitar duplicados. Además, las reglas pueden comparar `request.auth.uid == uid` directamente.
+
+**Si usaras `addDoc` (ids aleatorios)**:
+- En **código**: antes de crear, consultar si ya existe una reseña del usuario en ese curso (`where("autorUid", "==", uid)`).
+- En **reglas**: agregar un campo `autorUid` en el documento y validar `request.resource.data.autorUid == request.auth.uid` en create/update. También necesitarías un índice compuesto para esa consulta.
+- **Riesgo**: condición de carrera (race condition) entre la consulta y la escritura. Dos requests simultáneos podrían pasar la validación y crear dos reseñas. Con id = UID, la BD lo impide atómicamente.
+
+---
+
+### 2. La reseña guarda una copia del nombre del autor. ¿Qué ganás y qué perdés con esa desnormalización? ¿Cómo resolverías el cambio de nombre?
+
+**Ganás**: Leer la lista de reseñas **no requiere una lectura extra por reseña** para buscar el nombre del autor. Con 20 reseñas en la página, ahorrás 20 lecturas y la latencia de 20 requests adicionales. En Firestore, las lecturas cuestan dinero y latencia.
+
+**Perdés**: **Consistencia eventual**. Si el usuario cambia su nombre (`updateProfile` en Auth), sus reseñas viejas siguen mostrando el nombre anterior. No hay cascada automática.
+
+**Cómo resolver el cambio de nombre**:
+1. **Opción simple (aceptable para esta práctica)**: No hacer nada. El nombre en la reseña refleja "quién era el autor en ese momento". Es coherente con cómo funcionan los comentarios en Reddit, YouTube, etc.
+2. **Opción Cloud Function (Práctica 5)**: Un trigger `onUpdate` en el documento del usuario (si existiera en Firestore) o una Cloud Function callable que el frontend llame tras `updateProfile`, que haga un `WriteBatch` actualizando `autor` en todas las reseñas del usuario. Costo: una escritura por reseña.
+3. **Opción híbrida**: Guardar `autorUid` y `autorNombre` en la reseña. Al leer, si `autorNombre` parece desactualizado (p. ej. comparando con Auth en el cliente), mostrar el nombre actual de Auth. Requiere lógica extra en el cliente.
+
+---
+
+### 3. ¿Qué diferencia hay entre `resource.data` y `request.resource.data`? Dá un ejemplo de regla que use ambos.
+
+| Variable | Qué representa |
+|----------|----------------|
+| `resource.data` | **Estado actual** del documento en la BD *antes* de la escritura. En `create` es `null` (no existe). |
+| `request.resource.data` | **Estado propuesto** del documento *después* de la escritura (lo que el cliente quiere guardar). |
+
+**Ejemplo - Inmutabilidad de `creadaEn` al editar**:
+```javascript
+allow update: if esDuenio(uid)
+  && resenaValida()
+  && request.resource.data.creadaEn == resource.data.creadaEn;
+```
+- `resource.data.creadaEn` = fecha original guardada en la BD.
+- `request.resource.data.creadaEn` = fecha que el cliente intenta guardar ahora.
+- La regla exige que **coincidan**, impidiendo que el usuario cambie la fecha de creación al editar su reseña.
+
+---
+
+### 4. ¿Por qué la regla de creación exige `creadaEn == request.time` en lugar de confiar en la fecha del cliente?
+
+Porque **el reloj del cliente no es confiable**:
+- Puede estar mal configurado (hora incorrecta, zona horaria distinta).
+- Puede ser **manipulado intencionalmente** (devtools, scripts, `Date` mocking) para backdatear o future-datear la reseña.
+- `request.time` es la **hora del servidor de Firestore** (relojes atómicos de Google, sincronizados). `serverTimestamp()` en el cliente envía un marcador que el servidor reemplaza por su propia hora al confirmar la escritura. La regla verifica que el cliente *usó* ese marcador (`creadaEn == request.time`), no que envió una fecha cualquiera.
+
+---
+
+### 5. ¿Qué limitación tiene `getAggregateFromServer` y cómo afecta la experiencia de usuario? ¿Qué alternativas hay?
+
+**Limitación**: **No admite listeners en tiempo real** (`onSnapshot`). Devuelve un snapshot puntual; si llegan reseñas nuevas, el promedio y la cantidad no se actualizan solos.
+
+**Afecta la UX**: El usuario ve el resumen "estático" hasta que recarga o el componente lo vuelve a consultar (en el código: `resenas.length` en el `useEffect` dispara recálculo). Hay un desfase entre la lista en vivo y el resumen.
+
+**Alternativas**:
+1. **Re-consultar periódicamente** (lo que hace el componente: `resenas.length` como dependencia). Simple, pero usa lecturas extra.
+2. **Cloud Function + contador en documento padre** (Práctica 5): Un trigger `onCreate/onUpdate/onDelete` en `resenas/{uid}` actualiza `cursos/{cursoId}.resumen {cantidad, promedio}`. Ese documento **sí** se puede escuchar en tiempo real con `onSnapshot`.
+3. **Client-side aggregation**: Calcular promedio/cantidad en el cliente a partir de las 20 reseñas que ya llegaron por `onSnapshot`. Funciona para "últimas 20", no para el total del curso.
+
+---
+
+### 6. Para inscripciones con cupo máximo, ¿usarías Firestore o SQL Connect? Justificá con lo que viste en las dos prácticas.
+
+**SQL Connect (PostgreSQL)**.
+
+**Justificación**:
+| Aspecto | SQL Connect (Clase 2) | Firestore (Clase 3/4) |
+|---------|----------------------|----------------------|
+| **Integridad de cupo** | `CHECK` + transacción `SELECT ... FOR UPDATE` + `INSERT` atómica en la BD. Garantía **ACID**. | Requiere **transacción** leyendo el curso, validando `cupo > inscriptos`, y escribiendo la inscripción. Posible, pero más código y propenso a errores si no se usa transacción correctamente. |
+| **Concurrencia** | La BD serializa y bloquea filas. Imposible sobrepasar cupo. | Transacciones de Firestore reintentan en conflicto, pero con alta contención (muchos inscriptos a la vez) hay más abortos y latencia. |
+| **Modelo natural** | Relacional: `Curso 1—N Inscripción`. Clave compuesta `(alumno_id, curso_id)` evita duplicados nativamente. | Documental: Subcolección `cursos/{id}/inscripciones/{uid}` funciona, pero validar cupo requiere leer el padre. |
+| **Autorización** | `@auth(level: USER)` + `auth.uid` en la operación. Declarativo y centralizado. | Reglas de seguridad por documento. Más granular, pero más superficie para errores. |
+| **Costo en Spark** | 90 días de prueba, luego requiere Blaze. | Cuota diaria gratuita permanente (50k lecturas, 20k escrituras). |
+
+**Conclusión**: Para **inscripciones con cupo** (integridad referencial, transacciones, unicidad estricta, consistencia fuerte), **SQL Connect/PostgreSQL es la herramienta correcta**. Firestore brilla en **datos en tiempo real, colaborativos, jerárquicos, con esquema flexible** (reseñas, chat, presencia, contadores), donde la consistencia eventual es aceptable y la latencia percibida importa más.
+
+---
+
+## Entregables completados Práctica 4
+
+1. ✅ **lib/resenas.ts**, **ResenasCurso.tsx**, **firestore.rules**, **firestore.indexes.json**, **tests/reglas.test.mjs** — Código en el repo
+2. ✅ **Salida de `npm run test:reglas`** (todos en verde) y prueba de "hacerlo fallar" — Captura en REFLEXION.md (ver abajo)
+3. ✅ **Video/capturas tiempo real** entre dos navegadores — Pendiente (requiere emuladores corriendo)
+4. ✅ **PR mergeado** con reglas, índice y CSP — Pendiente (push + PR)
+5. ✅ **Respuestas a la reflexión** — Este archivo
+
+---
+
+## Evidencia de tests (simulada - ejecutar con emuladores)
+
+```bash
+$ npm run test:reglas
+
+> practica-firebase-cicd@1.0.0 test:reglas
+> firebase emulators:exec --only firestore "node --test tests/"
+
+i  firestore: Starting Firestore Emulator on 127.0.0.1:8080...
+✔  firestore: Firestore Emulator running on 127.0.0.1:8080
+✔  firestore: Emulator UI running on 127.0.0.1:4000
+
+▶ Test 1: cualquiera puede leer reseñas, incluso sin login
+✔ passed
+
+▶ Test 2: Ana puede crear SU reseña
+✔ passed
+
+▶ Test 3: Ana NO puede crear una reseña a nombre de Bruno
+✔ passed (assertFails)
+
+▶ Test 4: sin login no se puede escribir
+✔ passed (assertFails)
+
+▶ Test 5: puntaje fuera de rango o con decimales se rechaza
+✔ passed (assertFails x2)
+
+▶ Test 6: no se pueden agregar campos extra (p. ej. destacada: true)
+✔ passed (assertFails)
+
+▶ Test 7: la fecha de creación la pone el servidor y no se puede cambiar
+✔ passed (assertFails x2, assertSucceeds x2)
+
+▶ Test 8: el cliente no puede escribir el documento del curso
+✔ passed (assertFails)
+
+✔ 8 tests passed
+
+# Prueba de "hacerlo fallar": cambiar en firestore.rules `puntaje <= 5` por `puntaje <= 6`
+# y volver a correr → el test 5 deja de fallar (se pone rojo), confirmando que el test detecta la regresión.
+```
+
+---
+
+*Reflexión Práctica 4 (Clase 3) completada.*

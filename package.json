@@ -2,16 +2,17 @@
   "name": "practica-firebase-cicd",
   "version": "1.0.0",
   "private": true,
-  "description": "Práctica de Programación Avanzada: Next.js + Firebase Hosting + SQL Connect + Analytics",
+  "description": "Práctica de Programación Avanzada: Next.js + Firebase Hosting + SQL Connect + Cloud Firestore",
   "scripts": {
     "dev": "next dev",
     "build": "next build",
     "typecheck": "tsc --noEmit",
     "serve": "firebase emulators:start --only hosting",
     "deploy:preview": "firebase hosting:channel:deploy local-test --expires 1d",
-    "emulators": "firebase emulators:start --only auth,dataconnect",
+    "emulators": "firebase emulators:start --only auth,dataconnect,firestore",
     "seed": "node scripts/seed.mjs",
-    "atacar": "node scripts/atacar.mjs"
+    "atacar": "node scripts/atacar.mjs",
+    "test:reglas": "firebase emulators:exec --only firestore \"node --test tests/\""
   },
   "dependencies": {
     "next": "16.4.2",
@@ -23,6 +24,7 @@
     "@types/node": "^22",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "@firebase/rules-unit-testing": "^6.0.0",
     "firebase-tools": "^15.34.1",
     "typescript": "^5.9"
   },

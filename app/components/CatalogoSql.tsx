@@ -53,15 +53,25 @@ export default function CatalogoSql() {
       )}
       <FiltroCursos
         cursos={estado.cursos}
-        accion={(c) =>
-          usuario ? (
-            <button type="button" className="button button--small" disabled={enCurso === c.id} onClick={() => onInscribirme(c)}>
-              {enCurso === c.id ? "Inscribiendo…" : "Inscribirme"}
-            </button>
-          ) : (
-            <small className="hint">Ingresá para inscribirte</small>
-          )
-        }
+        accion={(c) => (
+          <div className="card__acciones">
+            <Link href={`/cursos/${c.id}`} className="button button--small button--ghost">
+              Ver detalle
+            </Link>
+            {usuario ? (
+              <button
+                type="button"
+                className="button button--small"
+                disabled={enCurso === c.id}
+                onClick={() => onInscribirme(c)}
+              >
+                {enCurso === c.id ? "Inscribiendo…" : "Inscribirme"}
+              </button>
+            ) : (
+              <small className="hint">Ingresá para inscribirte</small>
+            )}
+          </div>
+        )}
       />
     </>
   );

@@ -1,8 +1,13 @@
 {
   "dataconnect": { "source": "dataconnect" },
+  "firestore": {
+    "rules": "firestore.rules",
+    "indexes": "firestore.indexes.json"
+  },
   "emulators": {
     "auth": { "port": 9099 },
     "dataconnect": { "port": 9399, "dataDir": "dataconnect/.dataconnect/pgliteData" },
+    "firestore": { "port": 8080 },
     "hosting": { "port": 5000 },
     "ui": { "enabled": true },
     "singleProjectMode": true
@@ -42,7 +47,7 @@
           },
           {
             "key": "Content-Security-Policy",
-            "value": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https://picsum.photos; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; connect-src 'self' https://*.firebaseio.com https://identitytoolkit.googleapis.com https://*.firebasedatabase.app https://*.cloudfunctions.net https://*.googleapis.com"
+            "value": "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' https://picsum.photos; object-src 'none'; base-uri 'self'; frame-ancestors 'none'; form-action 'self'; connect-src 'self' https://*.firebaseio.com https://identitytoolkit.googleapis.com https://*.firebasedatabase.app https://*.cloudfunctions.net https://*.googleapis.com https://firestore.googleapis.com"
           },
           {
             "key": "Cache-Control",

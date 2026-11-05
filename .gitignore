@@ -19,6 +19,19 @@ firebase-debug.*.log
 # Config local con valores reales (cada dev tiene la suya)
 lib/firebase-config.ts
 
-# varios
-.env*.local
+# Emuladores - datos locales
+dataconnect/.dataconnect/
+pglite-debug.log
+dataconnect-debug.log
+
+# Logs varios
+*.log
+!*.log.js
+
+# Archivos temporales
+*.zip
+clase-*.zip
+
+# IDE / OS
 .DS_Store
+.env*.local
