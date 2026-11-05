@@ -115,6 +115,19 @@ siempre: **por Pull Request** (tu pipeline de la clase 1).
 
 ---
 
+## Capturas de pantalla (Práctica 4 - Cloud Firestore)
+
+### Reseña de Ana (tiempo real)
+![Reseña de Ana](./reseña%20ana.png)
+
+### Perfil de Bruno (segundo navegador)
+![Perfil de Bruno](./perfil%20de%20bruno.png)
+
+### Después de actualizar (edición en vivo)
+![Después de actualizar](./despues%20de%20actualizar.png)
+
+---
+
 ## Comandos
 
 | Comando | Para qué |
