@@ -12,7 +12,7 @@
     "emulators": "firebase emulators:start --only auth,dataconnect,firestore",
     "seed": "node scripts/seed.mjs",
     "atacar": "node scripts/atacar.mjs",
-    "test:reglas": "firebase emulators:exec --only firestore \"node --test tests/\""
+    "test:reglas": "firebase emulators:exec --only firestore \"node --test tests/reglas.test.mjs\""
   },
   "dependencies": {
     "next": "16.4.2",
